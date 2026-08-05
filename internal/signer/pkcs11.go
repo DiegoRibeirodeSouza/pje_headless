@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"bytes"
 	"crypto/md5" // #nosec G401
 	"crypto/x509"
 	"encoding/base64"
@@ -119,10 +120,28 @@ func (s *PKCS11Signer) Sign(_ context.Context, phrase, algorithm string) (string
 	}
 
 	var data []byte
-	if needsDigestInfo {
-		data = md5DigestInfo([]byte(phrase))
+	if decoded, err := base64.StdEncoding.DecodeString(phrase); err == nil {
+		data = decoded
 	} else {
 		data = []byte(phrase)
+	}
+
+	if needsDigestInfo {
+		if algorithm == "ASN1MD5withRSA" || algorithm == "MD5withRSA" {
+			if len(data) == 16 {
+				// Data is exactly an MD5 hash, prepend DigestInfo
+				out := make([]byte, len(md5DigestInfoPrefix)+16)
+				copy(out, md5DigestInfoPrefix)
+				copy(out[len(md5DigestInfoPrefix):], data)
+				data = out
+			} else if len(data) == 34 && bytes.HasPrefix(data, md5DigestInfoPrefix) {
+				// Data is already a DigestInfo
+			} else {
+				data = md5DigestInfo(data)
+			}
+		} else {
+			data = md5DigestInfo(data) // Fallback for other algos if needed
+		}
 	}
 
 	s.mu.Lock()
@@ -322,7 +341,7 @@ func algorithmToMechanism(algorithm string) (mech uint, needsDigestInfo bool, er
 		return p11.CKM_SHA256_RSA_PKCS, false, nil
 	case "SHA1withRSA":
 		return p11.CKM_SHA1_RSA_PKCS, false, nil
-	case "MD5withRSA":
+	case "MD5withRSA", "ASN1MD5withRSA":
 		return p11.CKM_RSA_PKCS, true, nil
 	default:
 		return 0, false, fmt.Errorf("pkcs11: unsupported algorithm %q", algorithm)

@@ -154,7 +154,7 @@ func (s *PFXSigner) Available(_ context.Context) bool {
 // SHA256withRSA. This helper is shared across signer implementations.
 func digest(algorithm string, data []byte) ([]byte, crypto.Hash, error) {
 	switch algorithm {
-	case "MD5withRSA":
+	case "MD5withRSA", "ASN1MD5withRSA":
 		h := md5.Sum(data) // #nosec G401
 		return h[:], crypto.MD5, nil
 	case "SHA1withRSA":

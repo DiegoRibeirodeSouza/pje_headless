@@ -8,6 +8,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"crypto/tls"
+	"strings"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -117,6 +120,32 @@ func (srv *Server) Serve(ln net.Listener) error {
 		WriteTimeout:      readTimeout + connectTimeout,
 		MaxHeaderBytes:    2 << 20, // 2 MiB
 	}
+
+	// Generate self-signed certificate for HTTPS
+	cert, err := generateSelfSignedCert()
+	if err != nil {
+		srv.log.Error("failed to generate TLS certificate", "err", err)
+	} else {
+		go func() {
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			}
+			httpsServer := &http.Server{
+				Addr:              "127.0.0.1:8801",
+				Handler:           srv.handler,
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       readTimeout,
+				WriteTimeout:      readTimeout + connectTimeout,
+				MaxHeaderBytes:    2 << 20,
+				TLSConfig:         tlsConfig,
+			}
+			srv.log.Info("PJeOffice headless HTTPS pronto", "addr", "127.0.0.1:8801")
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				srv.log.Error("HTTPS server failed", "err", err)
+			}
+		}()
+	}
+
 	srv.log.Info("PJeOffice headless pronto", "addr", ln.Addr().String())
 	return hs.Serve(ln)
 }
@@ -193,7 +222,8 @@ func (srv *Server) handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := srv.process(r.Context(), payload); err != nil {
+	authHeader := r.Header.Get("Authorization")
+	if err := srv.process(r.Context(), payload, authHeader); err != nil {
 		srv.log.Error("GET /requisicao/: process failed", "err", err)
 		writeGIF(w, gifErr)
 		return
@@ -220,12 +250,19 @@ func (srv *Server) handlePOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := srv.process(r.Context(), payload); err != nil {
+	authHeader := r.Header.Get("Authorization")
+
+	if err := srv.process(r.Context(), payload, authHeader); err != nil {
 		srv.log.Error("POST /requisicao/: process failed", "err", err)
-		writeGIF(w, gifErr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"sucesso":false,"erro":"falha no processamento"}`))
 		return
 	}
-	writeGIF(w, gifOK)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"sucesso":true,"mensagem":"Assinatura realizada com sucesso"}`))
 }
 
 // envelope is the outer wrapper sent by the browser/PJe client.
@@ -242,10 +279,17 @@ type task struct {
 	EnviarPara          string `json:"enviarPara"`
 	Token               string `json:"token"`
 	AlgoritmoAssinatura string `json:"algoritmoAssinatura"`
+	UploadUrl           string `json:"uploadUrl"`
+	Arquivos            []struct {
+		ID     string `json:"id"`
+		CodIni string `json:"codIni"`
+		Hash   string `json:"hash"`
+		IsBin  string `json:"isBin"`
+	} `json:"arquivos"`
 }
 
 // successCodes mirrors SUCCESS_CODES in the Python reference.
-var successCodes = map[int]bool{200: true, 201: true, 202: true, 204: true, 302: true, 304: true}
+var successCodes = map[int]bool{200: true, 201: true, 202: true, 204: true, 302: true, 304: true, 307: true}
 
 // process is the faithful Go port of Authenticator.process() in the Python reference.
 // It:
@@ -253,7 +297,7 @@ var successCodes = map[int]bool{200: true, 201: true, 202: true, 204: true, 302:
 //  2. Calls signer.Login -> signer.Sign -> signer.CertChainPKIPath.
 //  3. POSTs {uuid, mensagem, assinatura, certChain} to servidor+enviarPara
 //     with the versao and Cookie headers.
-func (srv *Server) process(ctx context.Context, raw map[string]any) error {
+func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader string) error {
 	// Marshal back to JSON so we can unmarshal into the typed struct.
 	// This avoids field-by-field type-asserting on map[string]any.
 	data, err := json.Marshal(raw)
@@ -266,6 +310,8 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 		return fmt.Errorf("process: parse envelope: %w", err)
 	}
 
+	srv.log.Info("process: raw tarefa", "tarefa", env.Tarefa)
+
 	var t task
 	if err := json.Unmarshal([]byte(env.Tarefa), &t); err != nil {
 		return fmt.Errorf("process: parse tarefa: %w", err)
@@ -276,13 +322,9 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 		algorithm = "MD5withRSA"
 	}
 
+	srv.log.Info("process: algorithm", "alg", algorithm, "msgLen", len(t.Mensagem), "msgSample", fmt.Sprintf("%x", t.Mensagem))
 	if err := srv.signer.Login(ctx); err != nil {
 		return fmt.Errorf("process: login: %w", err)
-	}
-
-	assinatura, err := srv.signer.Sign(ctx, t.Mensagem, algorithm)
-	if err != nil {
-		return fmt.Errorf("process: sign: %w", err)
 	}
 
 	certChain, err := srv.signer.CertChainPKIPath(ctx)
@@ -290,18 +332,80 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 		return fmt.Errorf("process: certchain: %w", err)
 	}
 
-	outBody := map[string]any{
-		"uuid":       t.Token,
-		"mensagem":   t.Mensagem,
-		"assinatura": assinatura,
-		"certChain":  certChain,
-	}
-	outJSON, err := json.Marshal(outBody)
-	if err != nil {
-		return fmt.Errorf("process: marshal out: %w", err)
-	}
+	var outJSON []byte
+	var target string
 
-	target := env.Servidor + t.EnviarPara
+	var bodyReader io.Reader
+	contentType := "application/json"
+
+	if t.UploadUrl != "" && len(t.Arquivos) > 0 {
+		// Batch signature mode
+		var responses []map[string]any
+		for _, arq := range t.Arquivos {
+			hashBytes, err := hex.DecodeString(arq.Hash)
+			if err != nil {
+				return fmt.Errorf("process: decode hash %q: %w", arq.Hash, err)
+			}
+
+			assinatura, err := srv.signer.Sign(ctx, string(hashBytes), algorithm)
+			if err != nil {
+				return fmt.Errorf("process: sign batch: %w", err)
+			}
+
+			responses = append(responses, map[string]any{
+				"id":                arq.ID,
+				"assinatura":        assinatura,
+				"cadeiaCertificado": []string{certChain},
+			})
+		}
+
+		outJSON, err = json.Marshal(responses)
+		if err != nil {
+			return fmt.Errorf("process: marshal batch out: %w", err)
+		}
+
+		if strings.HasPrefix(t.UploadUrl, "http://") || strings.HasPrefix(t.UploadUrl, "https://") {
+			target = t.UploadUrl
+		} else {
+			target = env.Servidor + t.UploadUrl
+		}
+		
+		bodyReader = bytes.NewReader(outJSON)
+	} else {
+		// Single document signature mode
+		assinatura, err := srv.signer.Sign(ctx, t.Mensagem, algorithm)
+		if err != nil {
+			return fmt.Errorf("process: sign: %w", err)
+		}
+
+		outBody := map[string]any{
+			"uuid":       t.Token,
+			"mensagem":   t.Mensagem,
+			"assinatura": assinatura,
+			"certChain":  certChain,
+		}
+		
+		target = env.Servidor + t.EnviarPara
+		
+		if strings.Contains(target, ".seam") {
+			// Old JSF endpoints expect form-data
+			values := url.Values{}
+			values.Set("uuid", t.Token)
+			values.Set("token", t.Token)
+			values.Set("mensagem", t.Mensagem)
+			values.Set("assinatura", assinatura)
+			values.Set("certChain", certChain)
+			values.Set("cadeiaCertificado", certChain) // sending as string for form-data
+			bodyReader = strings.NewReader(values.Encode())
+			contentType = "application/x-www-form-urlencoded"
+		} else {
+			outJSON, err = json.Marshal(outBody)
+			if err != nil {
+				return fmt.Errorf("process: marshal out: %w", err)
+			}
+			bodyReader = bytes.NewReader(outJSON)
+		}
+	}
 
 	// B-2: Validate the target URL to prevent SSRF via non-HTTP schemes
 	// (file://, gopher://, ftp://, etc.). Only http and https are accepted.
@@ -313,7 +417,7 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 		return fmt.Errorf("process: target URL scheme %q is not allowed (only http/https)", s)
 	}
 
-	outReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(outJSON))
+	outReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bodyReader)
 	if err != nil {
 		return fmt.Errorf("process: new request: %w", err)
 	}
@@ -324,12 +428,15 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 	}
 
 	outReq.Header.Set("versao", versao)
-	outReq.Header.Set("Content-Type", "application/json")
-	outReq.Header.Set("Accept", "application/json")
+	outReq.Header.Set("Content-Type", contentType)
+	outReq.Header.Set("Accept", "application/json, text/plain, */*")
 	outReq.Header.Set("User-Agent", "PJeOffice/"+pjeVersion)
 	outReq.Header.Set("Accept-Encoding", "gzip,deflate")
 	if env.Sessao != "" {
 		outReq.Header.Set("Cookie", env.Sessao)
+	}
+	if authHeader != "" {
+		outReq.Header.Set("Authorization", authHeader)
 	}
 
 	resp, err := srv.httpClient.Do(outReq)
@@ -337,16 +444,23 @@ func (srv *Server) process(ctx context.Context, raw map[string]any) error {
 		return fmt.Errorf("process: remote post to %q: %w", target, err)
 	}
 	defer resp.Body.Close()
-	// Drain body to allow connection reuse.
-	_, _ = io.Copy(io.Discard, resp.Body)
-
+	
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10000))
+	
 	if successCodes[resp.StatusCode] {
-		srv.log.Info("remote_post OK", "code", resp.StatusCode, "target", target)
+		srv.log.Info("remote_post OK", "code", resp.StatusCode, "target", target, "body_snippet", string(respBody[:min(len(respBody), 1000)]))
 		return nil
 	}
 
-	srv.log.Error("remote_post FAIL", "code", resp.StatusCode, "target", target)
+	srv.log.Error("remote_post FAIL", "code", resp.StatusCode, "target", target, "body_snippet", string(respBody[:min(len(respBody), 1000)]))
 	return fmt.Errorf("process: remote post %q returned %d", target, resp.StatusCode)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // applyCORS writes the CORS headers expected by the PJeOffice protocol.
