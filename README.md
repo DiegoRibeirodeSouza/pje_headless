@@ -1,11 +1,11 @@
 # pje_headless 2.0 (Fork com Suporte Nativo StarSign A3)
 
 > **Nota sobre este Fork:**  
-> Esta versão (mantida por Diego Ribeiro de Souza) inclui integrações exclusivas e um novo ecossistema para o uso **Open Source** do Token G&D StarSign CUT S (A3), operando sem a necessidade do middleware proprietário SafeSign.
+> O grande mérito deste repositório original (e o motivo deste fork mantido por Diego Ribeiro de Souza) é permitir o **abandono definitivo do PJeOffice oficial** (o pesado aplicativo legado em Java 8 exigido pelos tribunais).
 >
-> 🚀 **Em Produção:** Comprovado com absoluto sucesso! Peças processuais reais já foram assinadas e protocoladas tanto no **TJMG (PJe)** quanto no **TRT 3** utilizando este aplicativo aliado ao driver OpenSC customizado.
+> 🚀 **Em Produção:** Comprovado com absoluto sucesso! Peças processuais reais já foram assinadas e protocoladas tanto no **TJMG (PJe)** quanto no **TRT 3** utilizando este aplicativo aliado ao nosso driver OpenSC customizado. Juntos, eles eliminam completamente a dor de cabeça com o Java 8 (via `pje_headless`) e com o middleware proprietário SafeSign (via driver customizado).
 >
-> 🎨 **Novidades:** Adicionamos na pasta `/assets` um atalho oficial de Desktop (arquivo `.desktop`) com um ícone customizado sofisticado para iniciar o serviço de forma nativa e segura no Linux (com prompt de PIN interativo).
+> 🎨 **Novidades do Fork:** Adicionamos na pasta `/assets` um atalho oficial de Desktop (arquivo `.desktop`) com um ícone customizado sofisticado para iniciar o serviço `pje_headless` de forma nativa e segura no Linux (com prompt de PIN interativo).
 
 
 Autenticador headless do protocolo PJeOffice (CNJ). Servico escrito em Go que
