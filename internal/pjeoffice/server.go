@@ -311,6 +311,7 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 	}
 
 	srv.log.Info("process: raw tarefa", "tarefa", env.Tarefa)
+		srv.log.Info("process: envelope COMPLETO", "envelope_sessao", env.Sessao, "envelope_servidor", env.Servidor)
 
 	var t task
 	if err := json.Unmarshal([]byte(env.Tarefa), &t); err != nil {
@@ -369,8 +370,28 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 		} else {
 			target = env.Servidor + t.UploadUrl
 		}
-		
-		bodyReader = bytes.NewReader(outJSON)
+
+		if strings.Contains(target, ".seam") {
+			// Send form-urlencoded for .seam endpoints even in batch mode
+			values := url.Values{}
+			for i, resp := range responses {
+				arq := t.Arquivos[i]
+				values.Add("id", arq.ID)
+				if arq.CodIni != "" {
+					values.Add("codIni", arq.CodIni)
+				}
+				values.Add("hash", arq.Hash)
+				if arq.IsBin != "" {
+					values.Add("isBin", arq.IsBin)
+				}
+				values.Add("assinatura", resp["assinatura"].(string))
+				values.Add("cadeiaCertificado", certChain)
+			}
+			bodyReader = strings.NewReader(values.Encode())
+			contentType = "application/x-www-form-urlencoded"
+		} else {
+			bodyReader = bytes.NewReader(outJSON)
+		}
 	} else {
 		// Single document signature mode
 		assinatura, err := srv.signer.Sign(ctx, t.Mensagem, algorithm)
