@@ -6,6 +6,19 @@
 > 🚀 **Em Produção:** Comprovado com absoluto sucesso! Peças processuais reais já foram assinadas e protocoladas tanto no **TJMG (PJe)** quanto no **TRT 3** utilizando este aplicativo aliado ao nosso driver OpenSC customizado. Juntos, eles eliminam completamente a dor de cabeça com o Java 8 (via `pje_headless`) e com o middleware proprietário SafeSign (via [driver customizado OpenSC](https://github.com/DiegoRibeirodeSouza/starsign-driver)). Veja a [Documentação da Correção do JSF/Seam (PJE_SEAM_FIX.md)](./PJE_SEAM_FIX.md) para detalhes técnicos de como resolvemos o bloqueio de assinaturas em lote nos tribunais.
 >
 > 🎨 **Novidades do Fork:** Adicionamos na pasta `/assets` um atalho oficial de Desktop (arquivo `.desktop`) com um ícone customizado sofisticado para iniciar o serviço `pje_headless` de forma nativa e segura no Linux (com prompt de PIN interativo).
+>
+> ---
+>
+> ### 🔍 Mapeamento Técnico das Correções (TJMG PJe vs TRT 3)
+> O aplicativo original foi profundamente modificado para suportar dois cenários distintos (e problemáticos) da justiça brasileira:
+>
+> #### 1. Metodologia TJMG (PJe Legado / Endpoints `.seam`)
+> O PJe antigo, baseado no framework JSF, quebrava ao receber lotes de assinatura no formato JSON moderno. 
+> - **A Correção (`internal/pjeoffice/server.go`):** Injetamos um interceptador na camada HTTP. Toda vez que o destino da URL contém `.seam`, o Go converte o pacote JSON em um formulário `application/x-www-form-urlencoded` e injeta forçadamente os metadados perdidos (`hash`, `codIni`, `isBin`) de volta no corpo do POST, destravando a assinatura em lote. (Veja [PJE_SEAM_FIX.md](./PJE_SEAM_FIX.md)).
+>
+> #### 2. Metodologia TRT 3 (PJe KZ / CAdES e Gargalo de Hashing)
+> Ao tentar assinar arquivos maiores (ou CAdES) no TRT, o token StarSign travava se recebesse o algoritmo `CKM_SHA256_RSA_PKCS`, pois não conseguia realizar o hash internamente.
+> - **A Correção (`internal/signer/pkcs11.go`):** Alteramos a mecânica do `SHA256withRSA`. Ao invés de delegar o hash ao hardware, rebaixamos a chamada PKCS#11 para o formato RAW (`CKM_RSA_PKCS`). O próprio Go agora calcula o SHA-256 e concatena o prefixo DER/ASN.1 (`DigestInfo` de 51 bytes). O token recebe apenas o bloco cru e minúsculo pronto para assinar, contornando qualquer bug de buffer do chip. Também foi inserido suporte decodificação em Base64 automática e ao algoritmo `ASN1MD5withRSA`.
 
 
 Autenticador headless do protocolo PJeOffice (CNJ). Servico escrito em Go que
