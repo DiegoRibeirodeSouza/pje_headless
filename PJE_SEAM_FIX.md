@@ -38,3 +38,8 @@ Para corrigir este comportamento sem quebrar a compatibilidade com sistemas mais
    - E obviamente as respostas geradas `assinatura` e `cadeiaCertificado`.
 
 Essas modificações resolveram inteiramente o problema de assinatura em lote, permitindo o funcionamento 100% autônomo do `pje_headless` no PJe, sem perda de sessão.
+
+---
+
+## Contribuição Upstream (Pull Request)
+No espírito do software livre, essa correção foi empacotada e enviada de volta ao criador original (`MrSchrodingers`) através de um Pull Request no repositório oficial (`MrSchrodingers/pje_headless#1`), garantindo que outros desenvolvedores e usuários do sistema judiciário que enfrentem problemas com endpoints `.seam` possam se beneficiar nativamente da solução. Agradecemos novamente ao autor original pela arquitetura incrível que tornou essa ponte possível!
