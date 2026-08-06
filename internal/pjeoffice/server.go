@@ -368,7 +368,11 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 		if strings.HasPrefix(t.UploadUrl, "http://") || strings.HasPrefix(t.UploadUrl, "https://") {
 			target = t.UploadUrl
 		} else {
-			target = env.Servidor + t.UploadUrl
+			if !strings.HasSuffix(env.Servidor, "/") && !strings.HasPrefix(t.UploadUrl, "/") {
+				target = env.Servidor + "/" + t.UploadUrl
+			} else {
+				target = env.Servidor + t.UploadUrl
+			}
 		}
 
 		if strings.Contains(target, ".seam") {
@@ -406,7 +410,25 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 			"certChain":  certChain,
 		}
 		
-		target = env.Servidor + t.EnviarPara
+		if t.EnviarPara != "" {
+			if !strings.HasSuffix(env.Servidor, "/") && !strings.HasPrefix(t.EnviarPara, "/") {
+				target = env.Servidor + "/" + t.EnviarPara
+			} else {
+				target = env.Servidor + t.EnviarPara
+			}
+		} else if t.UploadUrl != "" {
+			if strings.HasPrefix(t.UploadUrl, "http://") || strings.HasPrefix(t.UploadUrl, "https://") {
+				target = t.UploadUrl
+			} else {
+				if !strings.HasSuffix(env.Servidor, "/") && !strings.HasPrefix(t.UploadUrl, "/") {
+					target = env.Servidor + "/" + t.UploadUrl
+				} else {
+					target = env.Servidor + t.UploadUrl
+				}
+			}
+		} else {
+			target = env.Servidor
+		}
 		
 		if strings.Contains(target, ".seam") {
 			// Old JSF endpoints expect form-data
