@@ -430,8 +430,8 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 			target = env.Servidor
 		}
 		
-		if strings.Contains(target, ".seam") {
-			// Old JSF endpoints expect form-data
+		if strings.Contains(target, ".seam") || strings.Contains(target, "/certificado") {
+			// Old JSF endpoints and certificate upload endpoints expect form-data
 			values := url.Values{}
 			values.Set("uuid", t.Token)
 			values.Set("token", t.Token)
@@ -439,6 +439,7 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 			values.Set("assinatura", assinatura)
 			values.Set("certChain", certChain)
 			values.Set("cadeiaCertificado", certChain) // sending as string for form-data
+			values.Set("cadeiaDeCertificadosBase64", certChain) // specific for TRT 3 pje-comum-api/api/pjeoffice/certificado
 			bodyReader = strings.NewReader(values.Encode())
 			contentType = "application/x-www-form-urlencoded"
 		} else {
