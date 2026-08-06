@@ -4,6 +4,7 @@ import (
 	"context"
 	"bytes"
 	"crypto/md5" // #nosec G401
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -138,6 +139,18 @@ func (s *PKCS11Signer) Sign(_ context.Context, phrase, algorithm string) (string
 				// Data is already a DigestInfo
 			} else {
 				data = md5DigestInfo(data)
+			}
+		} else if algorithm == "SHA256withRSA" {
+			if len(data) == 32 {
+				// Already a hash
+				out := make([]byte, len(sha256DigestInfoPrefix)+32)
+				copy(out, sha256DigestInfoPrefix)
+				copy(out[len(sha256DigestInfoPrefix):], data)
+				data = out
+			} else if len(data) == 51 && bytes.HasPrefix(data, sha256DigestInfoPrefix) {
+				// Already a DigestInfo
+			} else {
+				data = sha256DigestInfo(data)
 			}
 		} else {
 			data = md5DigestInfo(data) // Fallback for other algos if needed
@@ -338,7 +351,8 @@ func (s *PKCS11Signer) Available(_ context.Context) bool {
 func algorithmToMechanism(algorithm string) (mech uint, needsDigestInfo bool, err error) {
 	switch algorithm {
 	case "SHA256withRSA":
-		return p11.CKM_SHA256_RSA_PKCS, false, nil
+		// Manually hash in Go to bypass token bugs with large CAdES payloads
+		return p11.CKM_RSA_PKCS, true, nil
 	case "SHA1withRSA":
 		return p11.CKM_SHA1_RSA_PKCS, false, nil
 	case "MD5withRSA", "ASN1MD5withRSA":
@@ -359,6 +373,18 @@ func md5DigestInfo(data []byte) []byte {
 	out := make([]byte, len(md5DigestInfoPrefix)+len(h))
 	copy(out, md5DigestInfoPrefix)
 	copy(out[len(md5DigestInfoPrefix):], h[:])
+	return out
+}
+
+var sha256DigestInfoPrefix = []byte{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20}
+
+// sha256DigestInfo returns the DER-encoded DigestInfo structure for SHA-256.
+// The result is always 51 bytes: 19-byte prefix || sha256(data).
+func sha256DigestInfo(data []byte) []byte {
+	h := sha256.Sum256(data)
+	out := make([]byte, len(sha256DigestInfoPrefix)+len(h))
+	copy(out, sha256DigestInfoPrefix)
+	copy(out[len(sha256DigestInfoPrefix):], h[:])
 	return out
 }
 
