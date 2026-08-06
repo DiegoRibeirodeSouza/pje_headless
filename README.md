@@ -1,4 +1,12 @@
-# pje_headless 2.0
+# pje_headless 2.0 (Fork com Suporte Nativo StarSign A3)
+
+> **Nota sobre este Fork:**  
+> Esta versão (mantida por Diego Ribeiro de Souza) inclui integrações exclusivas e um novo ecossistema para o uso **Open Source** do Token G&D StarSign CUT S (A3), operando sem a necessidade do middleware proprietário SafeSign.
+>
+> 🚀 **Em Produção:** Comprovado com absoluto sucesso! Peças processuais reais já foram assinadas e protocoladas tanto no **TJMG (PJe)** quanto no **TRT 3** utilizando este aplicativo aliado ao driver OpenSC customizado.
+>
+> 🎨 **Novidades:** Adicionamos na pasta `/assets` um atalho oficial de Desktop (arquivo `.desktop`) com um ícone customizado sofisticado para iniciar o serviço de forma nativa e segura no Linux (com prompt de PIN interativo).
+
 
 Autenticador headless do protocolo PJeOffice (CNJ). Servico escrito em Go que
 expoe um endpoint HTTP local na porta 8800, recebe desafios de assinatura do

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=PJe Headless
+Comment=Assinador Digital ICP-Brasil (Driver Nativo)
+Exec=/home/diego/Documentos/starsign-driver/run_pje_headless.sh
+Icon=/home/diego/.gemini/antigravity-ide/brain/9b35123b-61b3-498c-a1e8-d9a2dc2b8303/token_sophisticated_rounded.png
+Terminal=true
+Categories=Utility;Security;
