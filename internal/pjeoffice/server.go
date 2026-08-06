@@ -285,6 +285,8 @@ type task struct {
 		CodIni string `json:"codIni"`
 		Hash   string `json:"hash"`
 		IsBin  string `json:"isBin"`
+		HashDoc        string `json:"hashDoc"`
+		ConteudoBase64 string `json:"conteudoBase64"`
 	} `json:"arquivos"`
 }
 
@@ -343,21 +345,41 @@ func (srv *Server) process(ctx context.Context, raw map[string]any, authHeader s
 		// Batch signature mode
 		var responses []map[string]any
 		for _, arq := range t.Arquivos {
-			hashBytes, err := hex.DecodeString(arq.Hash)
-			if err != nil {
-				return fmt.Errorf("process: decode hash %q: %w", arq.Hash, err)
-			}
+			var assinatura string
+			var err error
 
-			assinatura, err := srv.signer.Sign(ctx, string(hashBytes), algorithm)
-			if err != nil {
-				return fmt.Errorf("process: sign batch: %w", err)
+			if arq.ConteudoBase64 != "" {
+				base64Str := strings.ReplaceAll(arq.ConteudoBase64, " ", "+")
+				decodedBytes, errDecode := base64.StdEncoding.DecodeString(base64Str)
+				if errDecode != nil {
+					return fmt.Errorf("process: decode base64 %q: %w", arq.ConteudoBase64, errDecode)
+				}
+				assinatura, err = srv.signer.Sign(ctx, string(decodedBytes), algorithm)
+				if err != nil {
+					return fmt.Errorf("process: sign batch base64: %w", err)
+				}
+				
+				responses = append(responses, map[string]any{
+					"hashDoc":          arq.HashDoc,
+					"assinaturaBase64": assinatura,
+				})
+			} else {
+				hashBytes, errHex := hex.DecodeString(arq.Hash)
+				if errHex != nil {
+					return fmt.Errorf("process: decode hash %q: %w", arq.Hash, errHex)
+				}
+	
+				assinatura, err = srv.signer.Sign(ctx, string(hashBytes), algorithm)
+				if err != nil {
+					return fmt.Errorf("process: sign batch: %w", err)
+				}
+	
+				responses = append(responses, map[string]any{
+					"id":                arq.ID,
+					"assinatura":        assinatura,
+					"cadeiaCertificado": []string{certChain},
+				})
 			}
-
-			responses = append(responses, map[string]any{
-				"id":                arq.ID,
-				"assinatura":        assinatura,
-				"cadeiaCertificado": []string{certChain},
-			})
 		}
 
 		outJSON, err = json.Marshal(responses)
